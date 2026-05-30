@@ -15,6 +15,7 @@ const el = {
   outputSpec: document.querySelector("#outputSpec"),
   concept: document.querySelector("#concept"),
   editor: document.querySelector("#editor"),
+  monacoHost: document.querySelector("#monacoEditor"),
   errorLayer: document.querySelector("#errorLayer"),
   hintBtn: document.querySelector("#hintBtn"),
   answerBtn: document.querySelector("#answerBtn"),
@@ -38,10 +39,14 @@ let state = loadState();
 let current = clampLevel(state.current || 1);
 let hintIndex = 0;
 let highlightedLines = [];
+let monacoEditor = null;
+let monacoDecorations = [];
+let isSettingEditorValue = false;
 const levelsPerPage = 6;
 const pageCount = Math.ceil(levels.length / levelsPerPage);
 let currentPage = Math.floor((current - 1) / levelsPerPage) + 1;
 
+initCodeEditor();
 renderLevels();
 selectLevel(current);
 
@@ -62,6 +67,101 @@ function loadState() {
 function saveState() {
   state.current = current;
   localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+function initCodeEditor() {
+  if (!el.monacoHost || typeof window.require !== "function") return;
+
+  const monacoBase = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min";
+  window.MonacoEnvironment = {
+    getWorkerUrl() {
+      const worker = `
+        self.MonacoEnvironment = { baseUrl: "${monacoBase}/" };
+        importScripts("${monacoBase}/vs/base/worker/workerMain.js");
+      `;
+      return `data:text/javascript;charset=utf-8,${encodeURIComponent(worker)}`;
+    }
+  };
+
+  window.require.config({ paths: { vs: `${monacoBase}/vs` } });
+  window.require(["vs/editor/editor.main"], () => {
+    window.monaco.editor.defineTheme("cppQuestDark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [
+        { token: "keyword", foreground: "82b7ff" },
+        { token: "number", foreground: "ffd166" },
+        { token: "string", foreground: "98e2b8" }
+      ],
+      colors: {
+        "editor.background": "#0f1211",
+        "editor.foreground": "#f0f6fc",
+        "editorLineNumber.foreground": "#5f6b66",
+        "editorLineNumber.activeForeground": "#b9c8d8",
+        "editorCursor.foreground": "#82b7ff",
+        "editor.selectionBackground": "#245445",
+        "editor.lineHighlightBackground": "#17211d",
+        "editorGutter.background": "#0f1211"
+      }
+    });
+
+    monacoEditor = window.monaco.editor.create(el.monacoHost, {
+      value: el.editor.value,
+      language: "cpp",
+      theme: "cppQuestDark",
+      automaticLayout: true,
+      minimap: { enabled: false },
+      fontFamily: 'Consolas, "Cascadia Mono", "Courier New", monospace',
+      fontSize: 15,
+      lineHeight: 23,
+      tabSize: 4,
+      insertSpaces: true,
+      scrollBeyondLastLine: false,
+      renderLineHighlight: "all",
+      roundedSelection: false,
+      overviewRulerBorder: false,
+      wordWrap: "off",
+      bracketPairColorization: { enabled: true },
+      guides: { bracketPairs: true, indentation: true }
+    });
+
+    el.monacoHost.parentElement.classList.add("monaco-ready");
+    monacoEditor.onDidChangeModelContent(() => {
+      handleEditorChange(monacoEditor.getValue());
+    });
+    monacoEditor.addCommand(window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.Enter, submitCode);
+    renderErrorHighlights();
+  });
+}
+
+function getEditorValue() {
+  return monacoEditor ? monacoEditor.getValue() : el.editor.value;
+}
+
+function setEditorValue(value) {
+  isSettingEditorValue = true;
+  const nextValue = String(value || "");
+  el.editor.value = nextValue;
+  if (monacoEditor) {
+    monacoEditor.setValue(nextValue);
+  }
+  isSettingEditorValue = false;
+}
+
+function handleEditorChange(value) {
+  if (isSettingEditorValue) return;
+  clearErrorHighlights();
+  state.codes[current] = value;
+  saveState();
+  showAutosaveFlash();
+}
+
+function showAutosaveFlash() {
+  el.autosave.textContent = "已保存";
+  window.clearTimeout(el.autosave._timer);
+  el.autosave._timer = window.setTimeout(() => {
+    el.autosave.textContent = "自动保存";
+  }, 900);
 }
 
 function clampLevel(id) {
@@ -116,7 +216,7 @@ function selectLevel(id) {
   el.inputSpec.textContent = level.input;
   el.outputSpec.textContent = level.output;
   el.concept.textContent = level.concept;
-  el.editor.value = Object.prototype.hasOwnProperty.call(state.codes, current) ? state.codes[current] : "";
+  setEditorValue(Object.prototype.hasOwnProperty.call(state.codes, current) ? state.codes[current] : "");
   clearErrorHighlights();
   closeAnswer();
   el.hintBox.hidden = true;
@@ -241,6 +341,29 @@ function clearErrorHighlights() {
 }
 
 function renderErrorHighlights() {
+  if (monacoEditor && window.monaco) {
+    monacoDecorations = monacoEditor.deltaDecorations(
+      monacoDecorations,
+      highlightedLines.map(line => ({
+        range: new window.monaco.Range(line, 1, line, 1),
+        options: { isWholeLine: true, className: "monaco-error-line" }
+      }))
+    );
+    window.monaco.editor.setModelMarkers(
+      monacoEditor.getModel(),
+      "judge",
+      highlightedLines.map(line => ({
+        startLineNumber: line,
+        startColumn: 1,
+        endLineNumber: line,
+        endColumn: 1,
+        severity: window.monaco.MarkerSeverity.Error,
+        message: "这一行可能有语法或输出逻辑问题。"
+      }))
+    );
+    return;
+  }
+
   const lineHeight = 23.25;
   const topPadding = 18;
   el.errorLayer.innerHTML = "";
@@ -255,8 +378,9 @@ function renderErrorHighlights() {
 
 async function submitCode() {
   const level = levelById(current);
+  const code = getEditorValue();
   clearErrorHighlights();
-  const fullWidthIssues = findFullWidthIssues(el.editor.value);
+  const fullWidthIssues = findFullWidthIssues(code);
   if (fullWidthIssues.length) {
     showErrorHighlights(fullWidthIssues.map(issue => issue.line));
     setStatus("未通过", "fail");
@@ -281,11 +405,11 @@ async function submitCode() {
       const response = await fetch("./api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: level.id, code: el.editor.value })
+        body: JSON.stringify({ id: level.id, code })
       });
       result = await response.json();
     } else {
-      result = await window.runRemoteJudge(level.id, el.editor.value);
+      result = await window.runRemoteJudge(level.id, code);
     }
     handleJudgeResult(result);
   } catch (error) {
@@ -390,7 +514,7 @@ function escapeHtml(text) {
 
 function resetCurrentCode() {
   if (!confirm("清空本关代码？")) return;
-  el.editor.value = "";
+  setEditorValue("");
   clearErrorHighlights();
   state.codes[current] = "";
   saveState();
@@ -406,16 +530,7 @@ function resetAll() {
   selectLevel(1);
 }
 
-el.editor.addEventListener("input", () => {
-  clearErrorHighlights();
-  state.codes[current] = el.editor.value;
-  saveState();
-  el.autosave.textContent = "已保存";
-  window.clearTimeout(el.autosave._timer);
-  el.autosave._timer = window.setTimeout(() => {
-    el.autosave.textContent = "自动保存";
-  }, 900);
-});
+el.editor.addEventListener("input", () => handleEditorChange(el.editor.value));
 
 el.editor.addEventListener("scroll", renderErrorHighlights);
 el.editor.addEventListener("keydown", event => {
@@ -424,10 +539,9 @@ el.editor.addEventListener("keydown", event => {
   const start = el.editor.selectionStart;
   const end = el.editor.selectionEnd;
   const value = el.editor.value;
-  el.editor.value = value.slice(0, start) + "    " + value.slice(end);
+  setEditorValue(value.slice(0, start) + "    " + value.slice(end));
   el.editor.selectionStart = el.editor.selectionEnd = start + 4;
-  state.codes[current] = el.editor.value;
-  saveState();
+  handleEditorChange(el.editor.value);
 });
 
 el.hintBtn.addEventListener("click", showHint);
