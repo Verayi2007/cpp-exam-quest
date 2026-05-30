@@ -59,6 +59,7 @@
             <p id="concept"></p>
             <div class="actions">
               <button id="hintBtn" class="secondary" type="button">提示</button>
+              <button id="answerBtn" class="secondary" type="button">正确答案</button>
               <button id="resetCodeBtn" class="secondary" type="button">清空本关代码</button>
             </div>
             <div id="hintBox" class="hint-box" hidden></div>
@@ -69,7 +70,10 @@
               <span>main.cpp</span>
               <span id="autosave">自动保存</span>
             </div>
-            <textarea id="editor" spellcheck="false" aria-label="C++ 代码编辑器"></textarea>
+            <div class="editor-shell">
+              <div id="errorLayer" class="error-layer" aria-hidden="true"></div>
+              <textarea id="editor" spellcheck="false" aria-label="C++ 代码编辑器"></textarea>
+            </div>
             <div class="runbar">
               <button id="runBtn" class="primary" type="button">提交运行</button>
               <span id="runState">等待提交</span>
@@ -92,7 +96,22 @@
       </div>
     </div>
 
+    <div id="answerDialog" class="answer-dialog" hidden>
+      <section class="answer-panel" role="dialog" aria-modal="true" aria-labelledby="answerTitle">
+        <div class="answer-header">
+          <div>
+            <div class="source">只读参考答案</div>
+            <h2 id="answerTitle">正确答案</h2>
+          </div>
+          <button id="closeAnswerBtn" class="icon-button" type="button" aria-label="关闭正确答案" title="关闭">×</button>
+        </div>
+        <p>看懂以后请关闭弹窗，回到编辑器亲手敲一遍。查看答案不会自动解锁关卡。</p>
+        <pre id="answerCode"></pre>
+      </section>
+    </div>
+
     <script src="./challenges.js"></script>
+    <script src="./solutions.js"></script>
     <script src="./remote-judge.js"></script>
     <script src="./app.js"></script>
   </body>

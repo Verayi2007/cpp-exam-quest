@@ -58,8 +58,33 @@ function sanitizeSource(source) {
   return code;
 }
 
+function findFullWidthIssues(source) {
+  const messages = {
+    "；": "中文分号 `；`，请改成英文半角分号 `;`",
+    "，": "中文逗号 `，`，请改成英文半角逗号 `,`",
+    "（": "中文左括号 `（`，请改成英文半角括号 `(`",
+    "）": "中文右括号 `）`，请改成英文半角括号 `)`",
+    "｛": "中文左大括号 `｛`，请改成英文半角大括号 `{`",
+    "｝": "中文右大括号 `｝`，请改成英文半角大括号 `}`"
+  };
+  const issues = [];
+  String(source || "").split(/\r?\n/).forEach((line, index) => {
+    for (const char of line) {
+      if (messages[char]) issues.push({ line: index + 1, message: messages[char] });
+    }
+  });
+  return issues;
+}
+
 function explainCompilerError(stderr) {
   const text = String(stderr || "");
+  if (/U0000ff1b|\\uff1b|character literal operator/i.test(text)) {
+    return {
+      message: "编译没有通过：代码中可能混入了中文全角分号 `；`。",
+      analysis: "中文输入法下的 `；` 和英文分号 `;` 看起来很像，但 C++ 只能识别英文半角符号。",
+      hint: "查看标红代码行，切换到英文输入法，把 `；` 替换为 `;`。"
+    };
+  }
   if (/expected ['‘`]?;['’`]? before/i.test(text)) {
     return {
       message: "编译没有通过：看起来少了一个分号 `;`。",
@@ -100,6 +125,16 @@ function explainCompilerError(stderr) {
     analysis: "先让程序能编译。常见问题：少分号、括号不配对、函数没有返回值、变量作用域写错。",
     hint: "从编译器显示的第一条错误开始改，后面的错误通常会一起消失。"
   };
+}
+
+function extractErrorLines(stderr) {
+  const lines = [];
+  const pattern = /main\.cpp:(\d+)(?::(\d+))?/g;
+  let match;
+  while ((match = pattern.exec(String(stderr || "")))) {
+    lines.push(Number(match[1]));
+  }
+  return [...new Set(lines)].filter(line => Number.isInteger(line) && line > 0);
 }
 
 function runProcess(command, args, options = {}) {
@@ -269,6 +304,19 @@ async function judgeSubmission(id, source) {
     return { passed: false, stage: "load", message: "没有找到这一关。" };
   }
 
+  const fullWidthIssues = findFullWidthIssues(source);
+  if (fullWidthIssues.length) {
+    return {
+      passed: false,
+      stage: "compile",
+      message: "发现中文全角符号，C++ 编译器无法识别。",
+      analysis: fullWidthIssues.map(issue => `第 ${issue.line} 行：${issue.message}`).join("\n"),
+      hint: "对应代码行已经标红。切换到英文输入法后替换这些符号。",
+      errorLines: [...new Set(fullWidthIssues.map(issue => issue.line))],
+      tests: []
+    };
+  }
+
   const code = sanitizeSource(source);
   const requirementFailures = checkRequirements(code, challenge);
   if (requirementFailures.length) {
@@ -313,6 +361,7 @@ async function judgeSubmission(id, source) {
         stage: "compile",
         message: explanation.message,
         stderr: compile.stderr,
+        errorLines: extractErrorLines(compile.stderr),
         analysis: explanation.analysis,
         hint: explanation.hint
       };

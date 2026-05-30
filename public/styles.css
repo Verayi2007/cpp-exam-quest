@@ -374,6 +374,28 @@ button:disabled {
   overflow: hidden;
 }
 
+.editor-shell {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: #0f1211;
+}
+
+.error-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.error-line {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border-left: 4px solid var(--bad);
+  background: rgba(255, 107, 107, 0.18);
+}
+
 .editor-toolbar,
 .runbar {
   display: flex;
@@ -391,6 +413,7 @@ button:disabled {
 }
 
 #editor {
+  position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -398,7 +421,7 @@ button:disabled {
   padding: 18px;
   border: 0;
   outline: 0;
-  background: #0f1211;
+  background: transparent;
   color: #f0f6fc;
   font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
   font-size: 15px;
@@ -476,6 +499,69 @@ button:disabled {
   margin-bottom: 18px;
   color: #d7e0ea;
   line-height: 1.8;
+}
+
+.answer-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(4, 6, 5, 0.76);
+}
+
+.answer-dialog[hidden] {
+  display: none;
+}
+
+.answer-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  width: min(860px, 92vw);
+  height: min(720px, 88vh);
+  padding: 18px;
+  border: 1px solid rgba(88, 196, 146, 0.68);
+  border-radius: 6px;
+  background: #171b1a;
+  box-shadow: var(--shadow);
+}
+
+.answer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.answer-header h2 {
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.answer-header .icon-button {
+  width: 38px;
+  min-height: 38px;
+}
+
+.answer-panel p {
+  color: #d7e0dc;
+  line-height: 1.7;
+}
+
+#answerCode {
+  margin: 0;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1211;
+  color: #f0f6f3;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre;
 }
 
 @media (max-width: 980px) {

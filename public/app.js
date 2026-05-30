@@ -15,7 +15,9 @@ const el = {
   outputSpec: document.querySelector("#outputSpec"),
   concept: document.querySelector("#concept"),
   editor: document.querySelector("#editor"),
+  errorLayer: document.querySelector("#errorLayer"),
   hintBtn: document.querySelector("#hintBtn"),
+  answerBtn: document.querySelector("#answerBtn"),
   hintBox: document.querySelector("#hintBox"),
   resetCodeBtn: document.querySelector("#resetCodeBtn"),
   resetAllBtn: document.querySelector("#resetAllBtn"),
@@ -25,12 +27,17 @@ const el = {
   consoleOutput: document.querySelector("#consoleOutput"),
   autosave: document.querySelector("#autosave"),
   finishDialog: document.querySelector("#finishDialog"),
-  closeFinishBtn: document.querySelector("#closeFinishBtn")
+  closeFinishBtn: document.querySelector("#closeFinishBtn"),
+  answerDialog: document.querySelector("#answerDialog"),
+  answerTitle: document.querySelector("#answerTitle"),
+  answerCode: document.querySelector("#answerCode"),
+  closeAnswerBtn: document.querySelector("#closeAnswerBtn")
 };
 
 let state = loadState();
 let current = clampLevel(state.current || 1);
 let hintIndex = 0;
+let highlightedLines = [];
 const levelsPerPage = 6;
 const pageCount = Math.ceil(levels.length / levelsPerPage);
 let currentPage = Math.floor((current - 1) / levelsPerPage) + 1;
@@ -110,6 +117,8 @@ function selectLevel(id) {
   el.outputSpec.textContent = level.output;
   el.concept.textContent = level.concept;
   el.editor.value = Object.prototype.hasOwnProperty.call(state.codes, current) ? state.codes[current] : "";
+  clearErrorHighlights();
+  closeAnswer();
   el.hintBox.hidden = true;
   setStatus(state.passed.includes(current) ? "已通过" : "未提交", state.passed.includes(current) ? "pass" : "");
   el.runState.textContent = "等待提交";
@@ -131,8 +140,135 @@ function showHint() {
   el.hintBox.textContent = hint;
 }
 
+function showAnswer() {
+  const level = levelById(current);
+  el.answerTitle.textContent = `${String(level.id).padStart(2, "0")}  ${level.title}`;
+  el.answerCode.textContent = window.SOLUTIONS[level.id] || "这一关的参考答案正在整理中。";
+  el.answerDialog.hidden = false;
+}
+
+function closeAnswer() {
+  el.answerDialog.hidden = true;
+}
+
+function findFullWidthIssues(code) {
+  const suspicious = {
+    "；": "中文分号 `；`，请改成英文半角分号 `;`",
+    "，": "中文逗号 `，`，请改成英文半角逗号 `,`",
+    "（": "中文左括号 `（`，请改成英文半角括号 `(`",
+    "）": "中文右括号 `）`，请改成英文半角括号 `)`",
+    "｛": "中文左大括号 `｛`，请改成英文半角大括号 `{`",
+    "｝": "中文右大括号 `｝`，请改成英文半角大括号 `}`",
+    "“": "中文引号 `“`，请改成英文半角双引号 `\"`",
+    "”": "中文引号 `”`，请改成英文半角双引号 `\"`",
+    "‘": "中文单引号 `‘`，请改成英文半角单引号 `'`",
+    "’": "中文单引号 `’`，请改成英文半角单引号 `'`"
+  };
+  const issues = [];
+  let inBlockComment = false;
+  let inString = false;
+  let inChar = false;
+  let escaped = false;
+  code.split("\n").forEach((line, index) => {
+    let inLineComment = false;
+    for (let offset = 0; offset < line.length; offset++) {
+      const char = line[offset];
+      const next = line[offset + 1];
+      if (inLineComment) break;
+      if (inBlockComment) {
+        if (char === "*" && next === "/") {
+          inBlockComment = false;
+          offset++;
+        }
+        continue;
+      }
+      if (inString || inChar) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (inString && char === '"') inString = false;
+        if (inChar && char === "'") inChar = false;
+        continue;
+      }
+      if (char === "/" && next === "/") {
+        inLineComment = true;
+        continue;
+      }
+      if (char === "/" && next === "*") {
+        inBlockComment = true;
+        offset++;
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === "'") {
+        inChar = true;
+        continue;
+      }
+      if (suspicious[char]) {
+        issues.push({ line: index + 1, message: suspicious[char] });
+      }
+    }
+  });
+  return issues;
+}
+
+function extractErrorLines(stderr) {
+  const lines = [];
+  const pattern = /main\.cpp:(\d+)(?::(\d+))?/g;
+  let match;
+  while ((match = pattern.exec(String(stderr || "")))) {
+    lines.push(Number(match[1]));
+  }
+  return [...new Set(lines)].filter(line => Number.isInteger(line) && line > 0);
+}
+
+function showErrorHighlights(lines) {
+  highlightedLines = [...new Set(lines)].filter(line => Number.isInteger(line) && line > 0);
+  renderErrorHighlights();
+}
+
+function clearErrorHighlights() {
+  highlightedLines = [];
+  renderErrorHighlights();
+}
+
+function renderErrorHighlights() {
+  const lineHeight = 23.25;
+  const topPadding = 18;
+  el.errorLayer.innerHTML = "";
+  for (const line of highlightedLines) {
+    const marker = document.createElement("div");
+    marker.className = "error-line";
+    marker.style.top = `${topPadding + (line - 1) * lineHeight - el.editor.scrollTop}px`;
+    marker.style.height = `${lineHeight}px`;
+    el.errorLayer.appendChild(marker);
+  }
+}
+
 async function submitCode() {
   const level = levelById(current);
+  clearErrorHighlights();
+  const fullWidthIssues = findFullWidthIssues(el.editor.value);
+  if (fullWidthIssues.length) {
+    showErrorHighlights(fullWidthIssues.map(issue => issue.line));
+    setStatus("未通过", "fail");
+    el.consoleOutput.textContent = [
+      "发现中文全角符号，C++ 编译器无法识别。",
+      "",
+      ...fullWidthIssues.map(issue => `第 ${issue.line} 行：${issue.message}`),
+      "",
+      "对应代码行已经标红。切换到英文输入法后替换这些符号。"
+    ].join("\n");
+    return;
+  }
   el.runBtn.disabled = true;
   const isLocal = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   el.runState.textContent = isLocal ? "本地编译运行中..." : "沙箱编译运行中...";
@@ -168,6 +304,7 @@ async function submitCode() {
 
 function handleJudgeResult(result) {
   if (result.passed) {
+    clearErrorHighlights();
     setStatus("已通过", "pass");
     el.consoleOutput.textContent = formatPass(result);
 
@@ -188,6 +325,7 @@ function handleJudgeResult(result) {
   }
 
   setStatus("未通过", "fail");
+  showErrorHighlights(result.errorLines || extractErrorLines(result.stderr));
   el.consoleOutput.textContent = formatFailure(result);
 }
 
@@ -253,6 +391,7 @@ function escapeHtml(text) {
 function resetCurrentCode() {
   if (!confirm("清空本关代码？")) return;
   el.editor.value = "";
+  clearErrorHighlights();
   state.codes[current] = "";
   saveState();
 }
@@ -268,6 +407,7 @@ function resetAll() {
 }
 
 el.editor.addEventListener("input", () => {
+  clearErrorHighlights();
   state.codes[current] = el.editor.value;
   saveState();
   el.autosave.textContent = "已保存";
@@ -277,6 +417,7 @@ el.editor.addEventListener("input", () => {
   }, 900);
 });
 
+el.editor.addEventListener("scroll", renderErrorHighlights);
 el.editor.addEventListener("keydown", event => {
   if (event.key !== "Tab") return;
   event.preventDefault();
@@ -290,6 +431,7 @@ el.editor.addEventListener("keydown", event => {
 });
 
 el.hintBtn.addEventListener("click", showHint);
+el.answerBtn.addEventListener("click", showAnswer);
 el.resetCodeBtn.addEventListener("click", resetCurrentCode);
 el.resetAllBtn.addEventListener("click", resetAll);
 el.prevPageBtn.addEventListener("click", () => {
@@ -305,4 +447,11 @@ el.nextPageBtn.addEventListener("click", () => {
 el.runBtn.addEventListener("click", submitCode);
 el.closeFinishBtn.addEventListener("click", () => {
   el.finishDialog.hidden = true;
+});
+el.closeAnswerBtn.addEventListener("click", closeAnswer);
+el.answerDialog.addEventListener("click", event => {
+  if (event.target === el.answerDialog) closeAnswer();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeAnswer();
 });
