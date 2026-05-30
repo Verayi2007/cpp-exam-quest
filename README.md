@@ -8,7 +8,6 @@
 
 ## 在线体验
 
-部署后访问：
 
 ```text
 https://Verayi2007.github.io/cpp-exam-quest/
