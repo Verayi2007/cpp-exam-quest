@@ -1,57 +1,34 @@
 # C++ Exam Quest
 
-一个把 C++ 期末复习做成闯关小游戏的网页练习器。
+一个哄自己学 C++ 的闯关小游戏。
 
-它适合那种“知道该复习，但就是不想打开题库”的时刻：把高频基础题拆成 18 个关卡，从循环、数字拆分、函数，到数组、排序和递归，一关一关写过去。不会了可以看提示，实在卡住可以打开参考答案，但想解锁下一关，仍然要自己把代码敲出来并通过测试。
+它把 C++ 期末复习里最容易反复考、也最适合练手感的题目整理成 18 个关卡。你需要在空白编辑器里自己写代码，提交后通过测试才能解锁下一关。
 
-## Highlights
+不会写的时候可以看提示；实在卡住了也可以打开“正确答案”。不过答案只读，不会自动填进编辑器。想过关，还是得自己敲出来。
 
-- **18-level quest flow**: pass one level to unlock the next.
-- **Blank C++ editor**: no starter code, closer to an exam-room blank screen.
-- **Real judging**: compile and run C++ submissions against test cases.
-- **Helpful feedback**: common mistakes such as full-width Chinese punctuation are explained directly.
-- **Error line highlighting**: compiler-located lines are marked in the editor.
-- **Answer viewer**: reference solutions are readable, but never auto-filled.
-- **Local + online modes**: works locally with `g++`, and online with a sandboxed Judge0 runner.
+## 在线体验
 
-## Try It Online
-
-The GitHub Pages version runs fully in the browser and sends submissions to a Judge0 sandbox for compilation and execution.
-
-After deployment, the page will be available at:
+部署后访问：
 
 ```text
 https://Verayi2007.github.io/cpp-exam-quest/
 ```
 
-## Local Mode
+在线版会把 C++ 代码提交到 Judge0 沙箱中编译运行，不需要安装编译器，也不会在项目作者的电脑上执行访客代码。
 
-Local mode is useful when you want faster judging on your own machine.
+## 它能做什么
 
-Requirements:
+- 18 道 C++ 期末核心题，按冲刺顺序排列
+- 通过当前关后自动解锁下一关
+- 空白 IDE，没有默认代码，更接近考试手写体验
+- 提交后真实编译运行，不是只看关键词
+- 错误反馈会解释常见问题
+- 能定位的错误行会在编辑器里标红
+- 能识别中文全角分号、中文括号等隐藏错误
+- 可以查看只读参考答案，但不能一键填入
+- 支持本地 `g++` 判题和公网 Judge0 沙箱判题
 
-- Node.js
-- g++
-
-Start the app:
-
-```text
-node server.js
-```
-
-Then open:
-
-```text
-http://localhost:4173
-```
-
-On Windows, you can also double-click:
-
-```text
-启动闯关IDE.bat
-```
-
-## Level List
+## 18 个关卡
 
 1. n! 阶乘
 2. 等比求和
@@ -72,25 +49,57 @@ On Windows, you can also double-click:
 17. 上浮冒泡排序
 18. 递归最大公约数
 
-## How Judging Works
+## 本地运行
 
-The project has two judging paths:
+本地运行适合自己练习，速度更快。
 
-- **Localhost**: the Node server calls the local `g++` compiler.
-- **GitHub Pages**: the static page calls Judge0's sandboxed API.
+需要先安装：
 
-This keeps the public version easy to share while preserving the full compile-and-run experience.
+- Node.js
+- g++
 
-## Tech Stack
+启动：
 
-- HTML, CSS, JavaScript
-- Node.js local judging server
-- g++ for local compilation
-- Judge0 for online sandboxed execution
-- GitHub Actions + GitHub Pages for deployment
+```text
+node server.js
+```
 
-## Project Goal
+然后打开：
 
-Not a full online judge. Not a giant course platform.
+```text
+http://localhost:4173
+```
 
-Just a tiny study game for making C++ practice feel a little less like staring into the void.
+Windows 下也可以直接双击：
+
+```text
+启动闯关IDE.bat
+```
+
+## 公网判题说明
+
+项目有两套判题模式：
+
+- `localhost` 打开时，使用本机 Node 服务调用本地 `g++`
+- GitHub Pages 打开时，使用 Judge0 沙箱 API
+
+这样既能保留完整的编译运行体验，也能安全地公开分享。
+
+## 技术栈
+
+- HTML
+- CSS
+- JavaScript
+- Node.js
+- g++
+- Judge0
+- GitHub Actions
+- GitHub Pages
+
+## 为什么做这个
+
+复习编程题最难的不是“看懂答案”，而是能不能在空白编辑器里把它写出来。
+
+所以这个项目不想做成一份静态题单，而是一个小小的刷题装置：少一点拖延，多一点反馈；少一点焦虑，多敲几遍代码。
+
+祝你通关，也祝你考试顺利。
