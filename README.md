@@ -1,60 +1,57 @@
 # C++ Exam Quest
 
-一个“哄自己学 C++ 的小游戏”。
+一个把 C++ 期末复习做成闯关小游戏的网页练习器。
 
-把期末高频题做成 18 个小关卡：写代码、提交、看反馈、过关、解锁下一题。写不出来的时候可以偷偷看一眼“正确答案”，但系统不会自动帮你填进去，还是得自己敲出来并通过测试。
+它适合那种“知道该复习，但就是不想打开题库”的时刻：把高频基础题拆成 18 个关卡，从循环、数字拆分、函数，到数组、排序和递归，一关一关写过去。不会了可以看提示，实在卡住可以打开参考答案，但想解锁下一关，仍然要自己把代码敲出来并通过测试。
 
-## 在线玩法
+## Highlights
 
-公开版适合发给同学一起刷题：
+- **18-level quest flow**: pass one level to unlock the next.
+- **Blank C++ editor**: no starter code, closer to an exam-room blank screen.
+- **Real judging**: compile and run C++ submissions against test cases.
+- **Helpful feedback**: common mistakes such as full-width Chinese punctuation are explained directly.
+- **Error line highlighting**: compiler-located lines are marked in the editor.
+- **Answer viewer**: reference solutions are readable, but never auto-filled.
+- **Local + online modes**: works locally with `g++`, and online with a sandboxed Judge0 runner.
 
-- 左侧是 18 个关卡，按冲刺顺序排列。
-- 中间是题目原文摘录、知识点和提示。
-- 右侧是一个空白 C++ 编辑器。
-- 提交后会编译运行测试用例。
-- 错误代码会给出解析，能定位的错误行会标红。
-- 通过当前关后自动解锁下一关。
-- 18 关通关后会收到一声朴素但真诚的祝福。
+## Try It Online
 
-公网版使用 Judge0 隔离沙箱执行 C++ 代码，访客提交的代码不会在仓库作者的电脑上运行。
+The GitHub Pages version runs fully in the browser and sends submissions to a Judge0 sandbox for compilation and execution.
 
-## 本地完整模式
-
-如果你想在自己的电脑上跑本地版：
-
-1. 确认电脑已安装 `node` 和 `g++`。
-2. 双击 `启动闯关IDE.bat`。
-3. 打开：
+After deployment, the page will be available at:
 
 ```text
-http://localhost:4173
+https://Verayi2007.github.io/cpp-exam-quest/
 ```
 
-也可以在项目目录执行：
+## Local Mode
+
+Local mode is useful when you want faster judging on your own machine.
+
+Requirements:
+
+- Node.js
+- g++
+
+Start the app:
 
 ```text
 node server.js
 ```
 
-本地模式会调用你电脑上的 `g++` 编译运行。
-
-## GitHub Pages 部署
-
-仓库已经包含 GitHub Actions 配置：
+Then open:
 
 ```text
-.github/workflows/pages.yml
+http://localhost:4173
 ```
 
-推送到 GitHub 的 `main` 分支后，在仓库设置里打开：
+On Windows, you can also double-click:
 
 ```text
-Settings > Pages > Source > GitHub Actions
+启动闯关IDE.bat
 ```
 
-之后每次推送都会自动部署网页。
-
-## 18 关
+## Level List
 
 1. n! 阶乘
 2. 等比求和
@@ -75,12 +72,25 @@ Settings > Pages > Source > GitHub Actions
 17. 上浮冒泡排序
 18. 递归最大公约数
 
-## 安全说明
+## How Judging Works
 
-这个项目没有把陌生人的 C++ 代码放到你的电脑上执行。
+The project has two judging paths:
 
-- 本地版：只给自己用，代码在自己电脑上编译。
-- 公网版：代码提交给 Judge0 沙箱执行。
-- GitHub Pages：只托管静态网页文件。
+- **Localhost**: the Node server calls the local `g++` compiler.
+- **GitHub Pages**: the static page calls Judge0's sandboxed API.
 
-所以它适合公开分享，同时保留完整闯关判题体验。
+This keeps the public version easy to share while preserving the full compile-and-run experience.
+
+## Tech Stack
+
+- HTML, CSS, JavaScript
+- Node.js local judging server
+- g++ for local compilation
+- Judge0 for online sandboxed execution
+- GitHub Actions + GitHub Pages for deployment
+
+## Project Goal
+
+Not a full online judge. Not a giant course platform.
+
+Just a tiny study game for making C++ practice feel a little less like staring into the void.
