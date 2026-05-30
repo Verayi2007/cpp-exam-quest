@@ -24,8 +24,8 @@
       task: "4. 求 s=1+2+4+8+…+2^n。不能用 pow 函数。",
       input: "见题目原文",
       output: "见题目原文",
-      concept: "用变量 x 保存当前项，每轮 x=x*2，再加到 s。",
-      hints: ["n=0 时答案是 1。", "s 从 1 开始，x 从 1 开始。", "循环 i=1 到 n，每次生成下一项。"],
+      concept: "题目中的 2^n 表示数学上的 n 次方。注意：C++ 里的 ^ 是按位异或，不是乘方。原题不允许使用 pow，因此用变量 x 保存当前项，每轮 x=x*2，再加到 s。",
+      hints: ["不要在 C++ 代码中写 2^n；这里的 ^ 不是乘方运算。", "n=0 时答案是 1。s 从 1 开始，x 从 1 开始。", "循环 i=1 到 n，每次执行 x=x*2，再把 x 加到 s。"],
       tests: [
         { input: "0\n", expected: 1, checker: "containsNumber" },
         { input: "5\n", expected: 63, checker: "containsNumber" },
