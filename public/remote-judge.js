@@ -1,9 +1,11 @@
 (function (root) {
   const JUDGE0_BASE = "https://ce.judge0.com";
+  const JUDGE0_LANGUAGES_ENDPOINT = `${JUDGE0_BASE}/languages`;
   const JUDGE0_SYNC_ENDPOINT = `${JUDGE0_BASE}/submissions?base64_encoded=false&wait=true`;
   const JUDGE0_ASYNC_ENDPOINT = `${JUDGE0_BASE}/submissions?base64_encoded=false`;
-  const CPP_GCC_14 = 105;
+  const CPP_LANGUAGE_CANDIDATES = [105, 54, 53, 52, 76];
   const TERMINAL_STATUS_IDS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+  let cppLanguageIdsPromise = null;
 
   function parseNumbers(text) {
     return (String(text).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
@@ -245,19 +247,35 @@
     return body.data;
   }
 
-  async function createSubmission(url, code, stdin) {
+  async function resolveCppLanguageIds() {
+    if (!cppLanguageIdsPromise) {
+      cppLanguageIdsPromise = requestJson(JUDGE0_LANGUAGES_ENDPOINT, { method: "GET" })
+        .then(languages => {
+          if (!Array.isArray(languages)) return CPP_LANGUAGE_CANDIDATES;
+          const available = new Set(
+            languages
+              .filter(language => /C\+\+/.test(String(language.name || "")))
+              .map(language => Number(language.id))
+          );
+          const supported = CPP_LANGUAGE_CANDIDATES.filter(id => available.has(id));
+          return supported.length ? supported : CPP_LANGUAGE_CANDIDATES;
+        })
+        .catch(() => CPP_LANGUAGE_CANDIDATES);
+    }
+    return cppLanguageIdsPromise;
+  }
+
+  async function createSubmission(url, code, stdin, languageId) {
     return requestJson(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         source_code: code,
-        language_id: CPP_GCC_14,
+        language_id: languageId,
         stdin,
         cpu_time_limit: 2,
         wall_time_limit: 4,
-        memory_limit: 128000,
-        max_file_size: 1024,
-        enable_network: false
+        memory_limit: 128000
       })
     });
   }
@@ -275,19 +293,35 @@
     throw new Error("Judge0 返回结果超时，请稍后重试。");
   }
 
-  async function execute(code, stdin) {
+  async function executeWithLanguage(code, stdin, languageId) {
     try {
-      return await createSubmission(JUDGE0_SYNC_ENDPOINT, code, stdin);
+      return await createSubmission(JUDGE0_SYNC_ENDPOINT, code, stdin, languageId);
     } catch (error) {
       const shouldFallback = error && (error.status === 400 || error.status === 404 || error.status === 405 || error.status >= 500);
       if (!shouldFallback) throw error;
 
-      const queued = await createSubmission(JUDGE0_ASYNC_ENDPOINT, code, stdin);
+      const queued = await createSubmission(JUDGE0_ASYNC_ENDPOINT, code, stdin, languageId);
       if (!queued || !queued.token) {
         throw error;
       }
       return pollSubmission(queued.token);
     }
+  }
+
+  async function execute(code, stdin) {
+    const languageIds = await resolveCppLanguageIds();
+    let lastError = null;
+    for (const languageId of languageIds) {
+      try {
+        return await executeWithLanguage(code, stdin, languageId);
+      } catch (error) {
+        lastError = error;
+        if (!error || (error.status !== 400 && error.status !== 422)) {
+          throw error;
+        }
+      }
+    }
+    throw lastError || new Error("Judge0 暂时不可用，请稍后重试。");
   }
 
   async function runRemoteJudge(id, source) {
