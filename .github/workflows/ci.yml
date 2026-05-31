@@ -1,0 +1,26 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Show compiler versions
+        run: |
+          node --version
+          g++ --version
+
+      - name: Run smoke test
+        run: node scripts/smoke-test.mjs

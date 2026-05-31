@@ -1,0 +1,14 @@
+{
+  "name": "cpp-exam-quest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gamified C++ exam practice with a local judge and GitHub Pages demo.",
+  "scripts": {
+    "start": "node server.js",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "verify": "node scripts/smoke-test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
