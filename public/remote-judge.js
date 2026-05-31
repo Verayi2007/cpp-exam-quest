@@ -1,6 +1,9 @@
 (function (root) {
-  const JUDGE0_ENDPOINT = "https://ce.judge0.com/submissions?base64_encoded=false&wait=true";
+  const JUDGE0_BASE = "https://ce.judge0.com";
+  const JUDGE0_SYNC_ENDPOINT = `${JUDGE0_BASE}/submissions?base64_encoded=false&wait=true`;
+  const JUDGE0_ASYNC_ENDPOINT = `${JUDGE0_BASE}/submissions?base64_encoded=false`;
   const CPP_GCC_14 = 105;
+  const TERMINAL_STATUS_IDS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
 
   function parseNumbers(text) {
     return (String(text).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
@@ -16,6 +19,10 @@
 
   function normalize(text) {
     return String(text).replace(/\s+/g, " ").trim();
+  }
+
+  function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   function booleanFromOutput(output) {
@@ -205,8 +212,41 @@
     return [...new Set(lines)].filter(line => Number.isInteger(line) && line > 0);
   }
 
-  async function execute(code, stdin) {
-    const response = await fetch(JUDGE0_ENDPOINT, {
+  async function readResponseBody(response) {
+    const text = await response.text();
+    if (!text) return { text: "", data: null };
+    try {
+      return { text, data: JSON.parse(text) };
+    } catch {
+      return { text, data: null };
+    }
+  }
+
+  function formatJudge0Error(response, payload) {
+    if (payload && typeof payload === "object") {
+      const details = Object.entries(payload)
+        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+        .join("; ");
+      if (details) return `Judge0 暂时不可用（HTTP ${response.status}）：${details}`;
+    }
+    return `Judge0 暂时不可用（HTTP ${response.status}）。`;
+  }
+
+  async function requestJson(url, options) {
+    const response = await fetch(url, options);
+    const body = await readResponseBody(response);
+    if (!response.ok) {
+      const error = new Error(formatJudge0Error(response, body.data));
+      error.status = response.status;
+      error.payload = body.data;
+      error.bodyText = body.text;
+      throw error;
+    }
+    return body.data;
+  }
+
+  async function createSubmission(url, code, stdin) {
+    return requestJson(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -220,11 +260,34 @@
         enable_network: false
       })
     });
+  }
 
-    if (!response.ok) {
-      throw new Error(`Judge0 暂时不可用（HTTP ${response.status}）。`);
+  async function pollSubmission(token) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const result = await requestJson(`${JUDGE0_BASE}/submissions/${encodeURIComponent(token)}?base64_encoded=false`, {
+        method: "GET"
+      });
+      if (TERMINAL_STATUS_IDS.has(Number(result.status && result.status.id))) {
+        return result;
+      }
+      await delay(350);
     }
-    return response.json();
+    throw new Error("Judge0 返回结果超时，请稍后重试。");
+  }
+
+  async function execute(code, stdin) {
+    try {
+      return await createSubmission(JUDGE0_SYNC_ENDPOINT, code, stdin);
+    } catch (error) {
+      const shouldFallback = error && (error.status === 400 || error.status === 404 || error.status === 405 || error.status >= 500);
+      if (!shouldFallback) throw error;
+
+      const queued = await createSubmission(JUDGE0_ASYNC_ENDPOINT, code, stdin);
+      if (!queued || !queued.token) {
+        throw error;
+      }
+      return pollSubmission(queued.token);
+    }
   }
 
   async function runRemoteJudge(id, source) {
