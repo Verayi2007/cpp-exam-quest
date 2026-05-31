@@ -2,14 +2,19 @@ const http = require("http");
 const fs = require("fs/promises");
 const fss = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { spawn } = require("child_process");
 const challenges = require("./public/challenges.js");
 
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
 const TMP_ROOT = path.join(ROOT, ".tmp");
+const DATA_ROOT = process.env.DATA_ROOT || path.join(ROOT, ".data");
+const USERS_FILE = path.join(DATA_ROOT, "users.json");
 const PORT = Number(process.env.PORT || 4173);
 const GPP = process.env.GPP || "g++";
+const SESSION_COOKIE = "cpp_quest_session";
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -28,6 +33,14 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
+function sendAuthCookie(res, token) {
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`);
+}
+
+function clearAuthCookie(res) {
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
@@ -42,6 +55,231 @@ function readBody(req) {
     req.on("end", () => resolve(data));
     req.on("error", reject);
   });
+}
+
+function parseCookies(req) {
+  return Object.fromEntries(
+    String(req.headers.cookie || "")
+      .split(";")
+      .map(item => item.trim())
+      .filter(Boolean)
+      .map(item => {
+        const index = item.indexOf("=");
+        if (index === -1) return [item, ""];
+        return [decodeURIComponent(item.slice(0, index)), decodeURIComponent(item.slice(index + 1))];
+      })
+  );
+}
+
+function defaultState() {
+  return { unlocked: 1, current: 1, passed: [], codes: {} };
+}
+
+function normalizeState(input) {
+  const state = input && typeof input === "object" ? input : {};
+  const passed = Array.isArray(state.passed)
+    ? [...new Set(state.passed.map(Number).filter(id => Number.isInteger(id) && id >= 1 && id <= challenges.length))].sort((a, b) => a - b)
+    : [];
+  const codes = {};
+  if (state.codes && typeof state.codes === "object") {
+    for (const [id, code] of Object.entries(state.codes)) {
+      const levelId = Number(id);
+      if (Number.isInteger(levelId) && levelId >= 1 && levelId <= challenges.length) {
+        codes[levelId] = String(code || "").slice(0, 400_000);
+      }
+    }
+  }
+  const unlocked = Math.min(Math.max(Number(state.unlocked || 1), 1), challenges.length);
+  const current = Math.min(Math.max(Number(state.current || 1), 1), challenges.length);
+  return { unlocked, current, passed, codes };
+}
+
+function mergeState(serverState, clientState) {
+  const server = normalizeState(serverState);
+  const client = normalizeState(clientState);
+  return normalizeState({
+    unlocked: Math.max(server.unlocked, client.unlocked),
+    current: client.current || server.current,
+    passed: [...server.passed, ...client.passed],
+    codes: { ...server.codes, ...client.codes }
+  });
+}
+
+async function readStore() {
+  await fs.mkdir(DATA_ROOT, { recursive: true });
+  try {
+    const store = JSON.parse(await fs.readFile(USERS_FILE, "utf8"));
+    return {
+      users: Array.isArray(store.users) ? store.users : [],
+      sessions: Array.isArray(store.sessions) ? store.sessions : []
+    };
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    return { users: [], sessions: [] };
+  }
+}
+
+async function writeStore(store) {
+  await fs.mkdir(DATA_ROOT, { recursive: true });
+  await fs.writeFile(USERS_FILE, JSON.stringify(store, null, 2), "utf8");
+}
+
+function publicUser(user) {
+  return { id: user.id, username: user.username, createdAt: user.createdAt };
+}
+
+function normalizeUsername(username) {
+  return String(username || "").trim().toLowerCase();
+}
+
+function validateCredentials(username, password) {
+  const normalized = normalizeUsername(username);
+  if (!/^[a-z0-9_]{3,20}$/.test(normalized)) {
+    return { ok: false, message: "账号只能包含 3-20 位小写字母、数字或下划线。" };
+  }
+  if (String(password || "").length < 6) {
+    return { ok: false, message: "密码至少需要 6 位。" };
+  }
+  return { ok: true, username: normalized };
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  return { salt, hash };
+}
+
+function verifyPassword(password, stored) {
+  const next = hashPassword(password, stored.salt).hash;
+  return crypto.timingSafeEqual(Buffer.from(next, "hex"), Buffer.from(stored.hash, "hex"));
+}
+
+function createSession(store, userId) {
+  const now = Date.now();
+  store.sessions = store.sessions.filter(session => Number(session.expiresAt) > now);
+  const token = crypto.randomBytes(32).toString("hex");
+  store.sessions.push({
+    token,
+    userId,
+    expiresAt: now + SESSION_TTL_MS
+  });
+  return token;
+}
+
+async function getCurrentUser(req) {
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token) return { store: await readStore(), user: null, session: null, token: "" };
+  const store = await readStore();
+  const now = Date.now();
+  const session = store.sessions.find(item => item.token === token && Number(item.expiresAt) > now);
+  const user = session ? store.users.find(item => item.id === session.userId) : null;
+  return { store, user: user || null, session: session || null, token };
+}
+
+async function readJsonBody(req) {
+  return JSON.parse(await readBody(req) || "{}");
+}
+
+async function handleAuth(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (req.method === "GET" && url.pathname === "/api/auth/me") {
+    const { user } = await getCurrentUser(req);
+    if (!user) {
+      sendJson(res, 200, { authenticated: false, state: defaultState() });
+      return true;
+    }
+    sendJson(res, 200, { authenticated: true, user: publicUser(user), state: normalizeState(user.state) });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/register") {
+    const body = await readJsonBody(req);
+    const validation = validateCredentials(body.username, body.password);
+    if (!validation.ok) {
+      sendJson(res, 400, { message: validation.message });
+      return true;
+    }
+
+    const store = await readStore();
+    if (store.users.some(user => user.username === validation.username)) {
+      sendJson(res, 409, { message: "这个账号已经被注册了。" });
+      return true;
+    }
+
+    const now = new Date().toISOString();
+    const user = {
+      id: crypto.randomUUID(),
+      username: validation.username,
+      password: hashPassword(body.password),
+      state: normalizeState(body.state),
+      createdAt: now,
+      updatedAt: now
+    };
+    store.users.push(user);
+    const token = createSession(store, user.id);
+    await writeStore(store);
+    sendAuthCookie(res, token);
+    sendJson(res, 201, { authenticated: true, user: publicUser(user), state: user.state });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/login") {
+    const body = await readJsonBody(req);
+    const username = normalizeUsername(body.username);
+    const store = await readStore();
+    const user = store.users.find(item => item.username === username);
+    if (!user || !verifyPassword(body.password, user.password)) {
+      sendJson(res, 401, { message: "账号或密码不正确。" });
+      return true;
+    }
+
+    user.state = mergeState(user.state, body.state);
+    user.updatedAt = new Date().toISOString();
+    const token = createSession(store, user.id);
+    await writeStore(store);
+    sendAuthCookie(res, token);
+    sendJson(res, 200, { authenticated: true, user: publicUser(user), state: user.state });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/logout") {
+    const { store, token } = await getCurrentUser(req);
+    store.sessions = store.sessions.filter(session => session.token !== token);
+    await writeStore(store);
+    clearAuthCookie(res);
+    sendJson(res, 200, { authenticated: false });
+    return true;
+  }
+
+  return false;
+}
+
+async function handleUserState(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  if (url.pathname !== "/api/state") return false;
+
+  const { store, user } = await getCurrentUser(req);
+  if (!user) {
+    sendJson(res, 401, { message: "请先登录账号。" });
+    return true;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 200, { state: normalizeState(user.state) });
+    return true;
+  }
+
+  if (req.method === "PUT") {
+    const body = await readJsonBody(req);
+    user.state = normalizeState(body.state);
+    user.updatedAt = new Date().toISOString();
+    await writeStore(store);
+    sendJson(res, 200, { state: user.state });
+    return true;
+  }
+
+  sendJson(res, 405, { message: "Method Not Allowed" });
+  return true;
 }
 
 function sanitizeSource(source) {
@@ -435,6 +673,14 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/api/health") {
       sendJson(res, 200, { ok: true, gpp: GPP, challenges: challenges.length });
+      return;
+    }
+
+    if (await handleAuth(req, res)) {
+      return;
+    }
+
+    if (await handleUserState(req, res)) {
       return;
     }
 

@@ -32,7 +32,15 @@ const el = {
   answerDialog: document.querySelector("#answerDialog"),
   answerTitle: document.querySelector("#answerTitle"),
   answerCode: document.querySelector("#answerCode"),
-  closeAnswerBtn: document.querySelector("#closeAnswerBtn")
+  closeAnswerBtn: document.querySelector("#closeAnswerBtn"),
+  accountName: document.querySelector("#accountName"),
+  syncState: document.querySelector("#syncState"),
+  accountForm: document.querySelector("#accountForm"),
+  usernameInput: document.querySelector("#usernameInput"),
+  passwordInput: document.querySelector("#passwordInput"),
+  loginBtn: document.querySelector("#loginBtn"),
+  registerBtn: document.querySelector("#registerBtn"),
+  logoutBtn: document.querySelector("#logoutBtn")
 };
 
 let state = loadState();
@@ -42,6 +50,9 @@ let highlightedLines = [];
 let monacoEditor = null;
 let monacoDecorations = [];
 let isSettingEditorValue = false;
+let account = { user: null, available: true, syncing: false };
+let syncTimer = 0;
+let skipServerSync = false;
 const levelsPerPage = 6;
 const pageCount = Math.ceil(levels.length / levelsPerPage);
 let currentPage = Math.floor((current - 1) / levelsPerPage) + 1;
@@ -49,6 +60,7 @@ let currentPage = Math.floor((current - 1) / levelsPerPage) + 1;
 initCodeEditor();
 renderLevels();
 selectLevel(current);
+initAccount();
 
 function loadState() {
   try {
@@ -66,7 +78,149 @@ function loadState() {
 
 function saveState() {
   state.current = current;
+  saveLocalState();
+  queueServerSync();
+}
+
+function saveLocalState() {
   localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+function snapshotState() {
+  return {
+    unlocked: state.unlocked,
+    current,
+    passed: [...state.passed],
+    codes: { ...state.codes }
+  };
+}
+
+function normalizeState(input) {
+  const value = input && typeof input === "object" ? input : {};
+  const passed = Array.isArray(value.passed)
+    ? [...new Set(value.passed.map(Number).filter(id => Number.isInteger(id) && id >= 1 && id <= levels.length))].sort((a, b) => a - b)
+    : [];
+  return {
+    unlocked: Math.min(Math.max(Number(value.unlocked || 1), 1), levels.length),
+    current: Math.min(Math.max(Number(value.current || 1), 1), levels.length),
+    passed,
+    codes: value.codes && typeof value.codes === "object" ? value.codes : {}
+  };
+}
+
+function applyAccountState(nextState) {
+  skipServerSync = true;
+  state = normalizeState(nextState);
+  current = clampLevel(state.current || 1);
+  currentPage = Math.floor((current - 1) / levelsPerPage) + 1;
+  saveLocalState();
+  renderLevels();
+  selectLevel(current);
+  skipServerSync = false;
+}
+
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || `请求失败（HTTP ${response.status}）`);
+  return data;
+}
+
+function renderAccount() {
+  if (!el.accountName) return;
+  if (!account.available) {
+    el.accountName.textContent = "访客模式";
+    el.syncState.textContent = "静态页面";
+    el.accountForm.hidden = true;
+    el.logoutBtn.hidden = true;
+    return;
+  }
+  if (account.user) {
+    el.accountName.textContent = account.user.username;
+    el.syncState.textContent = account.syncing ? "同步中" : "已登录";
+    el.accountForm.hidden = true;
+    el.logoutBtn.hidden = false;
+    return;
+  }
+  el.accountName.textContent = "访客模式";
+  el.syncState.textContent = "本机保存";
+  el.accountForm.hidden = false;
+  el.logoutBtn.hidden = true;
+}
+
+async function initAccount() {
+  if (!el.accountForm) return;
+  try {
+    const data = await apiJson("./api/auth/me");
+    if (data.authenticated) {
+      account.user = data.user;
+      applyAccountState(data.state);
+    }
+  } catch {
+    account.available = false;
+  } finally {
+    renderAccount();
+  }
+}
+
+function queueServerSync() {
+  if (skipServerSync || !account.user || !account.available) return;
+  window.clearTimeout(syncTimer);
+  syncTimer = window.setTimeout(syncStateNow, 500);
+}
+
+async function syncStateNow() {
+  if (!account.user || !account.available) return;
+  account.syncing = true;
+  renderAccount();
+  try {
+    await apiJson("./api/state", {
+      method: "PUT",
+      body: JSON.stringify({ state: snapshotState() })
+    });
+    el.syncState.textContent = "已同步";
+  } catch (error) {
+    el.syncState.textContent = "同步失败";
+    console.warn(error);
+  } finally {
+    account.syncing = false;
+    window.setTimeout(renderAccount, 900);
+  }
+}
+
+async function signIn(mode) {
+  const username = el.usernameInput.value.trim();
+  const password = el.passwordInput.value;
+  el.syncState.textContent = mode === "register" ? "注册中" : "登录中";
+  try {
+    const data = await apiJson(`./api/auth/${mode}`, {
+      method: "POST",
+      body: JSON.stringify({ username, password, state: snapshotState() })
+    });
+    account.user = data.user;
+    el.passwordInput.value = "";
+    applyAccountState(data.state);
+    renderAccount();
+  } catch (error) {
+    el.syncState.textContent = error.message;
+  }
+}
+
+async function logout() {
+  try {
+    await apiJson("./api/auth/logout", { method: "POST", body: "{}" });
+  } catch (error) {
+    console.warn(error);
+  }
+  account.user = null;
+  renderAccount();
 }
 
 function initCodeEditor() {
@@ -563,6 +717,12 @@ el.closeFinishBtn.addEventListener("click", () => {
   el.finishDialog.hidden = true;
 });
 el.closeAnswerBtn.addEventListener("click", closeAnswer);
+el.accountForm.addEventListener("submit", event => {
+  event.preventDefault();
+  signIn("login");
+});
+el.registerBtn.addEventListener("click", () => signIn("register"));
+el.logoutBtn.addEventListener("click", logout);
 el.answerDialog.addEventListener("click", event => {
   if (event.target === el.answerDialog) closeAnswer();
 });

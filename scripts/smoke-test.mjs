@@ -8,6 +8,7 @@ const projectRoot = path.resolve(import.meta.dirname, "..");
 const publicRoot = path.join(projectRoot, "public");
 const port = Number(process.env.PORT || 4317);
 const baseUrl = `http://127.0.0.1:${port}`;
+const dataRoot = path.join(projectRoot, ".tmp", `smoke-data-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -53,7 +54,8 @@ async function runSmokeSuite() {
     cwd: projectRoot,
     env: {
       ...process.env,
-      PORT: String(port)
+      PORT: String(port),
+      DATA_ROOT: dataRoot
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -74,6 +76,78 @@ async function runSmokeSuite() {
     assert(indexHtml.includes("monaco-editor"), "Expected Monaco editor loader in index.html");
     assert(indexHtml.includes("finishDialog"), "Expected finish dialog markup in index.html");
     console.log("[smoke] static shell served");
+
+    const username = `smoke_${Date.now().toString(36)}`;
+    const password = "smoke-pass-123";
+    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username,
+        password,
+        state: {
+          unlocked: 3,
+          current: 2,
+          passed: [1],
+          codes: { 1: "int main(){}" }
+        }
+      })
+    });
+    const cookie = registerResponse.headers.get("set-cookie")?.split(";")[0];
+    const registerData = await registerResponse.json();
+    assert.equal(registerResponse.status, 201, "Registration should succeed");
+    assert.equal(registerData.user.username, username, "Registered username mismatch");
+    assert(cookie, "Registration should set an auth cookie");
+
+    const stateResponse = await fetch(`${baseUrl}/api/state`, {
+      headers: { Cookie: cookie }
+    });
+    const stateData = await stateResponse.json();
+    assert.equal(stateResponse.status, 200, "Authenticated state read should succeed");
+    assert.equal(stateData.state.unlocked, 3, "Initial account state should be saved");
+
+    const updatedState = {
+      unlocked: 4,
+      current: 3,
+      passed: [1, 2],
+      codes: { 2: "cout << 120;" }
+    };
+    const updateResponse = await fetch(`${baseUrl}/api/state`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: cookie
+      },
+      body: JSON.stringify({ state: updatedState })
+    });
+    const updateData = await updateResponse.json();
+    assert.equal(updateResponse.status, 200, "Authenticated state update should succeed");
+    assert.deepEqual(updateData.state.passed, [1, 2], "Updated account progress should persist");
+
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username,
+        password,
+        state: {
+          unlocked: 5,
+          current: 4,
+          passed: [1, 3],
+          codes: { 3: "merged local draft" }
+        }
+      })
+    });
+    const loginData = await loginResponse.json();
+    assert.equal(loginResponse.status, 200, "Login should succeed");
+    assert.equal(loginData.state.unlocked, 5, "Login should merge local progress into account state");
+    assert.deepEqual(loginData.state.passed, [1, 2, 3], "Login should merge passed levels");
+    assert.equal(loginData.state.codes[3], "merged local draft", "Login should merge local code drafts");
+    console.log("[smoke] account auth and progress sync passed");
 
     for (const challenge of challenges) {
       const code = solutions[challenge.id];
@@ -102,6 +176,7 @@ async function runSmokeSuite() {
   } finally {
     server.kill();
     await new Promise(resolve => server.once("exit", resolve));
+    await fs.rm(dataRoot, { recursive: true, force: true }).catch(() => {});
     if (stderr.trim()) {
       console.log("[smoke] server stderr:");
       console.log(stderr.trim());

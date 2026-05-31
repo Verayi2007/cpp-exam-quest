@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>C++ 期末闯关 IDE</title>
-    <link rel="stylesheet" href="./styles.css?v=20260531-blue-judge2">
+    <link rel="stylesheet" href="./styles.css?v=20260531-account2">
   </head>
   <body>
     <div class="app">
@@ -23,6 +23,21 @@
           </div>
           <div class="bar"><span id="progressBar"></span></div>
         </div>
+        <section class="account-panel" aria-label="账号同步">
+          <div class="account-meta">
+            <strong id="accountName">访客模式</strong>
+            <span id="syncState">本机保存</span>
+          </div>
+          <form id="accountForm" class="account-form">
+            <input id="usernameInput" name="username" type="text" autocomplete="username" placeholder="账号">
+            <input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="密码">
+            <div class="account-actions">
+              <button id="loginBtn" class="secondary" type="submit">登录</button>
+              <button id="registerBtn" class="secondary" type="button">注册</button>
+            </div>
+          </form>
+          <button id="logoutBtn" class="text-button" type="button" hidden>退出登录</button>
+        </section>
         <nav id="levelList" class="level-list"></nav>
         <div class="sidebar-pager" aria-label="关卡翻页">
           <button id="prevPageBtn" class="icon-button" type="button" title="上一页" aria-label="上一页">‹</button>
@@ -111,10 +126,10 @@
       </section>
     </div>
 
-    <script src="./challenges.js?v=20260531-blue-judge2"></script>
-    <script src="./solutions.js?v=20260531-blue-judge2"></script>
-    <script src="./remote-judge.js?v=20260531-blue-judge2"></script>
+    <script src="./challenges.js?v=20260531-account2"></script>
+    <script src="./solutions.js?v=20260531-account2"></script>
+    <script src="./remote-judge.js?v=20260531-account2"></script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.min.js"></script>
-    <script src="./app.js?v=20260531-blue-judge2"></script>
+    <script src="./app.js?v=20260531-account2"></script>
   </body>
 </html>
